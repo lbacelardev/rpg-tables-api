@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -60,9 +61,7 @@ describe('AppController (e2e)', () => {
       })
       .expect(400);
 
-    expect(response.body.message).toContain(
-      'O Email deve ser válido.',
-    );
+    expect(response.body.message).toContain('O Email deve ser válido.');
   });
 
   it('rejeita nome muito curto', async () => {
@@ -90,9 +89,7 @@ describe('AppController (e2e)', () => {
       })
       .expect(400);
 
-    expect(response.body.message).toContain(
-      'O nome deve ser um texto.',
-    );
+    expect(response.body.message).toContain('O nome deve ser um texto.');
   });
 
   it('rejeita senha muito curta', async () => {
@@ -119,9 +116,7 @@ describe('AppController (e2e)', () => {
       })
       .expect(400);
 
-    expect(response.body.message).toContain(
-      'A senha deve ser um texto.',
-    );
+    expect(response.body.message).toContain('A senha deve ser um texto.');
   });
 
   it('rejeita campos inválidos', async () => {
@@ -130,7 +125,7 @@ describe('AppController (e2e)', () => {
       .send({
         name: 'Lucas',
         email: 'lucas@example.com',
-        password: '123',
+        password: 'senha-de-exemplo',
         isAdmin: true,
       })
       .expect(400);
@@ -138,6 +133,16 @@ describe('AppController (e2e)', () => {
     expect(response.body.message).toContain(
       'property isAdmin should not exist',
     );
+  });
+
+  it('usa o banco exclusivo de testes', async () => {
+    const prisma = app.get(PrismaService);
+
+    const rows = await prisma.$queryRaw<Array<{ database: string }>>`
+    SELECT current_database() AS database
+  `;
+
+    expect(rows[0]?.database).toBe('rpg_tables_test');
   });
 
   afterEach(async () => {
