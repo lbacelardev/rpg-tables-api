@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service.js';
 import { vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PasswordService } from './password.service.js';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -16,6 +17,12 @@ describe('UsersService', () => {
             user: {
               count: vi.fn().mockResolvedValue(0),
             },
+          },
+        },
+        {
+          provide: PasswordService,
+          useValue: {
+            hash: vi.fn().mockResolvedValue('hash-simulado'),
           },
         },
       ],

@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { PasswordService } from '../src/users/password.service.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -24,6 +25,18 @@ describe('AppController (e2e)', () => {
     );
 
     await app.init();
+
+    const prisma = app.get(PrismaService);
+
+    const rows = await prisma.$queryRaw<Array<{ database: string }>>`
+      SELECT current_database() AS database
+    `;
+
+    if (rows[0]?.database !== 'rpg_tables_test') {
+      throw new Error('Limpeza permitida apenas em rpg_tables_test.');
+    }
+
+    await prisma.user.deleteMany();
   });
 
   it('/health (GET)', () => {
@@ -34,21 +47,59 @@ describe('AppController (e2e)', () => {
   });
 
   it('aceita dados válidos e remove espaços do nome', async () => {
-    await request(app.getHttpServer())
+    const response = await request(app.getHttpServer())
       .post('/users')
       .send({
         name: '  Lucas  ',
         email: 'lucas@example.com',
         password: 'senha-de-exemplo',
       })
-      .expect(201)
-      .expect({
-        message: 'Dados recebidos. O usuário ainda não foi salvo.',
-        data: {
-          name: 'Lucas',
-          email: 'lucas@example.com',
-        },
-      });
+      .expect(201);
+
+    expect(response.body).toEqual({
+      data: {
+        id: expect.any(String),
+        name: 'Lucas',
+        email: 'lucas@example.com',
+        createdAt: expect.any(String),
+      },
+    });
+
+    const prisma = app.get(PrismaService);
+
+    const storedUser = await prisma.user.findUniqueOrThrow({
+      where: { email: 'lucas@example.com' },
+    });
+
+    const passwordService = app.get(PasswordService);
+
+    expect(storedUser.id).toBe(response.body.data.id);
+    expect(storedUser.passwordHash).not.toBe('senha-de-exemplo');
+
+    await expect(
+      passwordService.verify(storedUser.passwordHash, 'senha-de-exemplo'),
+    ).resolves.toBe(true);
+  });
+
+  it('rejeita e-mail duplicado sem criar outro usuário', async () => {
+    const body = {
+      name: 'Lucas',
+      email: 'lucas@example.com',
+      password: 'senha-de-exemplo',
+    };
+
+    await request(app.getHttpServer()).post('/users').send(body).expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/users')
+      .send(body)
+      .expect(409);
+
+    expect(response.body.message).toBe('Este e-mail já está cadastrado.');
+
+    const prisma = app.get(PrismaService);
+
+    await expect(prisma.user.count()).resolves.toBe(1);
   });
 
   it('rejeita e-mail inválido', async () => {
@@ -146,6 +197,8 @@ describe('AppController (e2e)', () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 });
