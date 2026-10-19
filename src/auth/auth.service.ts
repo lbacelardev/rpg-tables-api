@@ -2,12 +2,14 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PasswordService } from '../users/password.service.js';
 import { LoginDto } from './dto/login.dto.js';
+import { SessionsService } from './sessions.service.js';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwordService: PasswordService,
+    private readonly sessionsService: SessionsService,
   ) {}
 
   async login(body: LoginDto) {
@@ -28,12 +30,15 @@ export class AuthService {
       );
 
       if (passwordMatches) {
+        const session = await this.sessionsService.create(user.id);
+
         return {
-          data: {
+          user: {
             id: user.id,
             name: user.name,
             email: user.email,
           },
+          session,
         };
       }
     }

@@ -199,11 +199,6 @@ describe('AppController (e2e)', () => {
   });
 
   it('aceita login após cadastro', async () => {
-    const loginBody = {
-      email: 'teste@example.com',
-      password: 'senha-valida',
-    };
-
     const registration = await request(app.getHttpServer())
       .post('/users')
       .send({
@@ -215,7 +210,10 @@ describe('AppController (e2e)', () => {
 
     const response = await request(app.getHttpServer())
       .post('/auth/login')
-      .send(loginBody)
+      .send({
+        email: 'teste@example.com',
+        password: 'senha-valida',
+      })
       .expect(200);
 
     expect(response.body).toEqual({
@@ -225,14 +223,34 @@ describe('AppController (e2e)', () => {
         email: 'teste@example.com',
       },
     });
+
+    const cookies = response.headers['set-cookie'];
+    const cookie = Array.isArray(cookies) ? cookies[0] : cookies;
+
+    expect(cookie).toEqual(expect.any(String));
+
+    if (typeof cookie !== 'string') {
+      throw new Error('O login não enviou o cookie de sessão.');
+    }
+
+    expect(cookie).toMatch(/^rpg_session=/);
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).toContain('Path=/');
+    expect(cookie).toContain('Expires=');
+
+    const token = cookie.split(';')[0].slice('rpg_session='.length);
+
+    const sessionsService = app.get(SessionsService);
+
+    await expect(sessionsService.findUser(token)).resolves.toEqual({
+      id: registration.body.data.id,
+      name: 'Exemplo',
+      email: 'teste@example.com',
+    });
   });
 
   it('verifica senha inválida', async () => {
-    const loginBody = {
-      email: 'teste@example.com',
-      password: 'senha-invalida',
-    };
-
     await request(app.getHttpServer())
       .post('/users')
       .send({
@@ -244,48 +262,58 @@ describe('AppController (e2e)', () => {
 
     const response = await request(app.getHttpServer())
       .post('/auth/login')
-      .send(loginBody)
+      .send({
+        email: 'teste@example.com',
+        password: 'senha-invalida',
+      })
       .expect(401);
 
     expect(response.body.message).toContain('E-mail ou senha inválidos.');
+
+    expect(response.headers['set-cookie']).toBeUndefined();
+
+    const prisma = app.get(PrismaService);
+    await expect(prisma.session.count()).resolves.toBe(0);
   });
 
   it('tentar login sem cadastrar', async () => {
-    const loginBody = {
-      email: 'teste@example.com',
-      password: 'senha-invalida',
-    };
-
     const response = await request(app.getHttpServer())
       .post('/auth/login')
-      .send(loginBody)
+      .send({
+        email: 'teste@example.com',
+        password: 'senha-invalida',
+      })
       .expect(401);
 
     expect(response.body.message).toContain('E-mail ou senha inválidos.');
+    expect(response.headers['set-cookie']).toBeUndefined();
+
+    const prisma = app.get(PrismaService);
+    await expect(prisma.session.count()).resolves.toBe(0);
   });
 
   it('login com email inválido', async () => {
-    const loginBody = {
-      email: 'abc',
-      password: 'senha-invalida',
-    };
-
     const response = await request(app.getHttpServer())
       .post('/auth/login')
-      .send(loginBody)
+      .send({
+        email: 'abc',
+        password: 'senha-invalida',
+      })
       .expect(400);
 
     expect(response.body.message).toContain('Informe um e-mail válido.');
+    expect(response.headers['set-cookie']).toBeUndefined();
+
+    const prisma = app.get(PrismaService);
+    await expect(prisma.session.count()).resolves.toBe(0);
   });
 
   it('campo de senha ausente', async () => {
-    const loginBody = {
-      email: 'teste@example.com',
-    };
-
     const response = await request(app.getHttpServer())
       .post('/auth/login')
-      .send(loginBody)
+      .send({
+        email: 'teste@example.com',
+      })
       .expect(400);
 
     expect(response.body.message).toContain('Informe a senha.');
