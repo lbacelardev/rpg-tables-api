@@ -5,6 +5,8 @@ import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { PasswordService } from '../src/users/password.service.js';
+import { SessionsService } from '../src/auth/sessions.service.js';
+import { createHash } from 'node:crypto';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -196,7 +198,7 @@ describe('AppController (e2e)', () => {
     expect(rows[0]?.database).toBe('rpg_tables_test');
   });
 
-  it('verifica login seguido de cadastro', async () => {
+  it('aceita login após cadastro', async () => {
     const loginBody = {
       email: 'teste@example.com',
       password: 'senha-valida',
@@ -268,15 +270,6 @@ describe('AppController (e2e)', () => {
       password: 'senha-invalida',
     };
 
-    await request(app.getHttpServer())
-      .post('/users')
-      .send({
-        name: 'Exemplo',
-        email: 'teste@example.com',
-        password: 'senha-valida',
-      })
-      .expect(201);
-
     const response = await request(app.getHttpServer())
       .post('/auth/login')
       .send(loginBody)
@@ -290,21 +283,119 @@ describe('AppController (e2e)', () => {
       email: 'teste@example.com',
     };
 
-    await request(app.getHttpServer())
-      .post('/users')
-      .send({
-        name: 'Exemplo',
-        email: 'teste@example.com',
-        password: 'senha-valida',
-      })
-      .expect(201);
-
     const response = await request(app.getHttpServer())
       .post('/auth/login')
       .send(loginBody)
       .expect(400);
 
     expect(response.body.message).toContain('Informe a senha.');
+  });
+
+  it('encontra o usuário de uma sessão válida', async () => {
+    const registration = await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Lucas',
+        email: 'lucas@example.com',
+        password: 'senha-de-exemplo',
+      })
+      .expect(201);
+
+    const sessionsService = app.get(SessionsService);
+    const session = await sessionsService.create(registration.body.data.id);
+    const user = await sessionsService.findUser(session.token);
+
+    expect(user).toEqual({
+      id: registration.body.data.id,
+      name: 'Lucas',
+      email: 'lucas@example.com',
+    });
+  });
+
+  it('rejeita token desconhecido', async () => {
+    const sessionsService = app.get(SessionsService);
+
+    await expect(
+      sessionsService.findUser('token-inexistente'),
+    ).resolves.toBeNull();
+  });
+
+  it('token salvo difere do original', async () => {
+    const registration = await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Lucas',
+        email: 'lucas@example.com',
+        password: 'senha-de-exemplo',
+      })
+      .expect(201);
+
+    const sessionsService = app.get(SessionsService);
+    const session = await sessionsService.create(registration.body.data.id);
+    const prisma = app.get(PrismaService);
+
+    const storedSession = await prisma.session.findFirstOrThrow({
+      where: { userId: registration.body.data.id },
+    });
+
+    const expectedHash = createHash('sha256')
+      .update(session.token)
+      .digest('hex');
+
+    expect(storedSession.tokenHash).toBe(expectedHash);
+    expect(storedSession.tokenHash).not.toBe(session.token);
+  });
+
+  it('sessão expirada', async () => {
+    const registration = await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Lucas',
+        email: 'lucas@example.com',
+        password: 'senha-de-exemplo',
+      })
+      .expect(201);
+
+    const sessionsService = app.get(SessionsService);
+    const session = await sessionsService.create(registration.body.data.id);
+
+    const prisma = app.get(PrismaService);
+    await prisma.session.updateMany({
+      where: { userId: registration.body.data.id },
+      data: {
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    await expect(sessionsService.findUser(session.token)).resolves.toBeNull();
+  });
+
+  it('revogação de token não deve falhar', async () => {
+    const registration = await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Lucas',
+        email: 'lucas@example.com',
+        password: 'senha-de-exemplo',
+      })
+      .expect(201);
+
+    const sessionsService = app.get(SessionsService);
+    const session = await sessionsService.create(registration.body.data.id);
+
+    await sessionsService.revoke(session.token);
+    await expect(sessionsService.findUser(session.token)).resolves.toBeNull();
+    await expect(
+      sessionsService.revoke(session.token),
+    ).resolves.toBeUndefined();
+
+    const prisma = app.get(PrismaService);
+
+    await expect(
+      prisma.session.count({
+        where: { userId: registration.body.data.id },
+      }),
+    ).resolves.toBe(0);
   });
 
   afterEach(async () => {
