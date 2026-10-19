@@ -196,6 +196,117 @@ describe('AppController (e2e)', () => {
     expect(rows[0]?.database).toBe('rpg_tables_test');
   });
 
+  it('verifica login seguido de cadastro', async () => {
+    const loginBody = {
+      email: 'teste@example.com',
+      password: 'senha-valida',
+    };
+
+    const registration = await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Exemplo',
+        email: 'teste@example.com',
+        password: 'senha-valida',
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(loginBody)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      data: {
+        id: registration.body.data.id,
+        name: 'Exemplo',
+        email: 'teste@example.com',
+      },
+    });
+  });
+
+  it('verifica senha inválida', async () => {
+    const loginBody = {
+      email: 'teste@example.com',
+      password: 'senha-invalida',
+    };
+
+    await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Exemplo',
+        email: 'teste@example.com',
+        password: 'senha-valida',
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(loginBody)
+      .expect(401);
+
+    expect(response.body.message).toContain('E-mail ou senha inválidos.');
+  });
+
+  it('tentar login sem cadastrar', async () => {
+    const loginBody = {
+      email: 'teste@example.com',
+      password: 'senha-invalida',
+    };
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(loginBody)
+      .expect(401);
+
+    expect(response.body.message).toContain('E-mail ou senha inválidos.');
+  });
+
+  it('login com email inválido', async () => {
+    const loginBody = {
+      email: 'abc',
+      password: 'senha-invalida',
+    };
+
+    await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Exemplo',
+        email: 'teste@example.com',
+        password: 'senha-valida',
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(loginBody)
+      .expect(400);
+
+    expect(response.body.message).toContain('Informe um e-mail válido.');
+  });
+
+  it('campo de senha ausente', async () => {
+    const loginBody = {
+      email: 'teste@example.com',
+    };
+
+    await request(app.getHttpServer())
+      .post('/users')
+      .send({
+        name: 'Exemplo',
+        email: 'teste@example.com',
+        password: 'senha-valida',
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(loginBody)
+      .expect(400);
+
+    expect(response.body.message).toContain('Informe a senha.');
+  });
+
   afterEach(async () => {
     if (app) {
       await app.close();

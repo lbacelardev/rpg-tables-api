@@ -8,5 +8,6 @@ import { PasswordService } from './password.service.js';
   controllers: [UsersController],
   providers: [UsersService, PasswordService],
   imports: [PrismaModule],
+  exports: [PasswordService]
 })
 export class UsersModule {}
